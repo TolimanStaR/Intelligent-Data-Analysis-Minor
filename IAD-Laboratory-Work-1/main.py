@@ -1,7 +1,5 @@
-import argparse
-
-from include import test
-
+from include.dispatch import *
+from include.staticdata import *
 
 
 if __name__ == '__main__':
