@@ -1,15 +1,12 @@
 from .models import *
 
 
-def f(x):
-    x.name = "Whar?"
-
-
-def empty_action(phone_book: PhoneBook) -> None:
+def empty_action() -> None:
     pass
 
 
-
+def add_user() -> None:
+    pass
 
 
 
