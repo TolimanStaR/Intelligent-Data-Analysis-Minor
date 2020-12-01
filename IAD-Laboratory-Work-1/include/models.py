@@ -42,11 +42,14 @@ class AbstractField(ABC):
 
     @staticmethod
     def get_command_string_arg_pattern(arg_name: str) -> str:
-        return rf'--{arg_name}=([a-zA-Z0-9 \+]*)[ -$\s\n]+'
+        return rf'--{arg_name}=([a-zA-Z0-9 \+.;]*)[-$\s\n\t ]+'
 
     class InvalidValue(Exception):
         def __init__(self, exception_text):
             print(exception_text)
+
+    def __eq__(self, other):
+        return self.get_string_value() == other.get_string_value()
 
     def __str__(self):
         return f'class models.{abs_field_class_str}'
@@ -75,6 +78,7 @@ class Name(AbstractField):
 
         if not type(value) is str:
             is_valid = False
+            return is_valid
 
         if not value.replace(space, str()).isalpha():
             is_valid = False
@@ -133,6 +137,7 @@ class PhoneNumber(AbstractField):
 
         if not type(value) is str:
             is_valid = False
+            return is_valid
 
         edited_value: str = self.reduce(value)
 
@@ -167,14 +172,62 @@ class DateTime(AbstractField):
             raise self.InvalidValue(invalid_value_sign)
 
     def standardise_value(self, value: Any) -> value_class:
-        pass
+        date_data: list = list(map(int, self.reduce(value).split()))
+
+        date = datetime.date(
+            year=date_data[0],
+            month=date_data[1],
+            day=date_data[2],
+        )
+
+        return date
 
     @staticmethod
     def parse_argument(command_string: str, class_arg_name: str = class_arg_name):
         return AbstractField.parse_argument(command_string, class_arg_name)
 
+    @staticmethod
+    def reduce(value: str) -> str:
+        return value.strip().replace('-', space).replace('.', space).replace(';', space)
+
+    @staticmethod
+    def isdigit(string: str) -> bool:
+        return string.isdigit()
+
     def is_valid_value(self, value: Any) -> bool:
-        pass
+
+        is_valid = True
+
+        if not type(value) is str:
+            is_valid = False
+            return is_valid
+
+        date: list = self.reduce(value).split()
+
+        if not len(date) == 3:
+            is_valid = False
+
+        if not (len(date[0]) == 4 and 1 <= len(date[1]) <= 2 and 1 <= len(date[2]) <= 2):
+            is_valid = False
+
+        if not sum(map(self.isdigit, date)) == 3:
+            is_valid = False
+            return is_valid
+
+        date = list(map(int, date))
+
+        try:
+            test_date = datetime.date(
+                year=date[0],
+                month=date[1],
+                day=date[2],
+            )
+        except ValueError:
+            print(f'Значение {value} некорректно. Попробуйте заново')
+            is_valid = False
+            return is_valid
+
+        return is_valid
 
     def __str__(self):
         return f'{self.value.year}.{self.value.month}.{self.value.day}'
@@ -188,38 +241,73 @@ class DateTime(AbstractField):
 
 class UserProfile(object):
 
-    # Создание объекта
+    def __init__(self, name: Name = None, mobile_phone: PhoneNumber = None, birth_date: DateTime = None):
+        """
+        Инициализация объекта пользователя (контакта в справочнике)
+        Каждое поле - отдельный класс, хранящий информацию
+        """
 
-    def __init__(self, name: Name, mobile_phone: PhoneNumber, birth_date: DateTime):
         self.name = name
         self.mobile_phone = mobile_phone
         self.birth_date = birth_date
         self.extra_phones = list()
 
-    # Получение уникального идентификатора
-
     def get_identifier(self) -> int:
+        """Получение уникального идентификатора пользователя"""
+
         hash_sum = sum(map(hash, (self.name.get_string_value(),
                                   self.mobile_phone.get_string_value(),
                                   self.birth_date.get_string_value()))
                        )
         return hash_sum
 
+    def __str__(self):
+        return f'{self.name.get_string_value()} - ' \
+               f'{self.mobile_phone.get_string_value()} ' \
+               f'({self.birth_date.get_string_value()})'
+
+    def __repr__(self):
+        return self.__str__()
+
+    def __xor__(self, other):
+        """
+        Перегрузка оператора '^' (XOR)
+        Будет использоваться для проверки того, подходит ли
+        Данный пользователь под определенные критерии поиска
+        """
+
+        match = True
+
+        if self.name and other.name:
+            if not self.name == other.name:
+                match = False
+
+        if self.mobile_phone and other.mobile_phone:
+            if not self.mobile_phone == other.mobile_phone:
+                match = False
+
+        if self.birth_date and other.birth_date:
+            if not self.birth_date == other.birth_date:
+                match = False
+
+        return match
+
 
 class PhoneBook(object):
 
-    # Записная книга всегда одна.
-    # таким образом, инициализируя экземпляр класса где угодно,
-    # мы получаем доступ к ней из любой части программы
-
     def __new__(cls, *args, **kwargs):
+        """
+        Записная книга всегда одна.
+        таким образом, инициализируя экземпляр класса где угодно,
+        мы получаем доступ к ней из любой части программы
+        """
+
         if not hasattr(cls, 'instance'):
             cls.instance = super(PhoneBook, cls).__new__(cls)
         return cls.instance
-
-    # Считывание файла / БД и создание телефонной книги для использования в runtime
-
+    
     def __init__(self, db_file_name: str = database_file_name):
+        """Считывание файла / БД и создание телефонной книги для использования в runtime"""
         self.object_list = self.parse_database(db_file_name)
 
     @staticmethod
@@ -262,14 +350,12 @@ class PhoneBook(object):
         for user in object_list:
             print(user)
 
-    # Сохранение изменений в книге
-
     def save(self):
+        """Сохранение изменений в справочнике"""
         pass
 
-    # Строковое представление объекта
-
     def __str__(self):
+        """Естественным образом, будет изпользоваться для отображения справочника пользователю"""
         string = str()
         return string
 

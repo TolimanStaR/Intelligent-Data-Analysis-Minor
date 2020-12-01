@@ -2,15 +2,23 @@ phone_book = None
 
 invalid_value_sign: str = 'Вы ввели некорректное значение поля'
 
-database_file_name: str = 'data.csv'  # Значение по умолмчанию
 
-phone_types = (
+# Имя файла базы данных по умолчанию:
+
+database_file_name: str = 'data.csv'
+
+# можно заменить на свое,
+# но лучше делать это через аргументы
+
+
+phone_types: tuple = (
     'Мобильный',
     'Домашний',
     'Рабочий',
     'Запасной',
 
 )
+
 available_commands: tuple = (
     'list',
     'get_id',
