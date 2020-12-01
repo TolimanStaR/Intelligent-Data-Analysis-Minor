@@ -11,7 +11,7 @@ phone_types = (
     'Запасной',
 
 )
-available_commands = (
+available_commands: tuple = (
     'list',
     'get_id',
     'search',
@@ -22,3 +22,7 @@ available_commands = (
     'add_phone',
     'quit',
 )
+
+abs_field_class_str: str = 'AbstractField'
+
+space: str = ' '
