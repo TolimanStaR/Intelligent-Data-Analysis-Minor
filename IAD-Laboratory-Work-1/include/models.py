@@ -247,10 +247,12 @@ class UserProfile(object):
         Каждое поле - отдельный класс, хранящий информацию
         """
 
-        self.name = name
-        self.mobile_phone = mobile_phone
-        self.birth_date = birth_date
-        self.extra_phones = list()
+        self.name: Name = name
+        self.mobile_phone: PhoneNumber = mobile_phone
+        self.birth_date: DateTime = birth_date
+        self.extra_phones: list = list()
+
+        self.identifier: int = self.get_identifier()
 
     def get_identifier(self) -> int:
         """Получение уникального идентификатора пользователя"""
@@ -261,32 +263,61 @@ class UserProfile(object):
                        )
         return hash_sum
 
+    def recount_identifier(self):
+        self.identifier = self.get_identifier()
+
+    @staticmethod
+    def parse_id(command_string: str, class_arg_name: str = 'id'):
+        return AbstractField.parse_argument(command_string, class_arg_name)
+
     def __str__(self):
         return f'{self.name.get_string_value()} - ' \
                f'{self.mobile_phone.get_string_value()} ' \
-               f'({self.birth_date.get_string_value()})'
+               f'({self.birth_date.get_string_value()}) ' \
+               f'id: {self.identifier}'
 
     def __repr__(self):
         return self.__str__()
+
+    def __and__(self, other):
+        """Сравнение пользователей на основе их уникального идентификатора"""
+
+        return self.identifier == other.identifier
+
+    def __eq__(self, other):
+        """Сравнение пользователей на основе равенства их полей"""
+
+        match = True
+
+        if not (self.name == other.name and
+                self.birth_date == other.birth_date and
+                self.mobile_phone == other.mobile_phone):
+            match = False
+
+        return match
 
     def __xor__(self, other):
         """
         Перегрузка оператора '^' (XOR)
         Будет использоваться для проверки того, подходит ли
         Данный пользователь под определенные критерии поиска
+
+        other - Пользователь, поля экземпляра которого
+        могут быть заполнены не полностью, т.е. он служит неким 'паттерном'
+        В этом случае считается, что поля не конфликтуют и равны
         """
 
         match = True
 
-        if self.name and other.name:
+        if other.name:
             if not self.name == other.name:
                 match = False
 
-        if self.mobile_phone and other.mobile_phone:
+        if other.mobile_phone:
             if not self.mobile_phone == other.mobile_phone:
                 match = False
 
-        if self.birth_date and other.birth_date:
+        if other.birth_date:
             if not self.birth_date == other.birth_date:
                 match = False
 
@@ -305,46 +336,87 @@ class PhoneBook(object):
         if not hasattr(cls, 'instance'):
             cls.instance = super(PhoneBook, cls).__new__(cls)
         return cls.instance
-    
+
     def __init__(self, db_file_name: str = database_file_name):
-        """Считывание файла / БД и создание телефонной книги для использования в runtime"""
+        """
+        Считывание файла / БД
+        И создание телефонной книги для использования в runtime
+        """
+
         self.object_list = self.parse_database(db_file_name)
 
     @staticmethod
-    def parse_database(database_file_name: str) -> list:
+    def parse_database(database_file_name: str) -> list:  # todo: implement this function
         object_list: list = list()
         return object_list
 
-    # Добавление нового пользователя в справочник
+    def add_user(self, user: UserProfile):
+        """Добавление пользователя в справочник"""
+
+        if user not in self.object_list:
+            self.object_list.append(user)
 
     def __add__(self, other):
         self.add_user(other)
 
-    def add_user(self, user: UserProfile):
-        pass
+    def delete_user(self, target_user: UserProfile) -> None:
+        """
+        Удаление пользователя из справочника
+        Удаление происходит по имени и фамилии
+        """
 
-    # Удаление пользователя из справочника
+        for index, user in enumerate(self.object_list):
+            if target_user ^ user:
+                self.object_list.pop(index)
+                return
 
-    def delete_user(self, user: UserProfile):
-        pass
+    def edit_user(self, identifier: int, command: str):
+        """Изменение информации о пользователе"""
 
-    # Изменение информации о пользователе
+        user_index = self.get_user_index_by_id(identifier)
+        new_name: Name = Name(Name.parse_argument(command_string=command))
+        new_phone: PhoneNumber = PhoneNumber(PhoneNumber.parse_argument(command_string=command))
+        new_date: DateTime = DateTime(DateTime.parse_argument(command_string=command))
 
-    def edit_user(self, user: UserProfile):
-        pass
+        if not user_index == -1:
+            if hasattr(new_name, default_class_value_name):
+                self.object_list[user_index] = new_name
+            if hasattr(new_phone, default_class_value_name):
+                self.object_list[user_index] = new_phone
+            if hasattr(new_date, default_class_value_name):
+                self.object_list[user_index] = new_date
 
-    # Поиск конкретного пользователя
-    #
-    # Некоторые поля могут быть не инициализированы,
-    # тогда возвращается первый подходящий объект
+            self.object_list[user_index].recount_identifier()
 
-    def search_user(self, user: UserProfile):
-        pass
+    def search_user(self, target_user: UserProfile) -> UserProfile:
+        for user in self.object_list:
+            if target_user ^ user:
+                return user
 
-    # Поиск пользователей в справочнике по критериям / полям
+    def get_user_index(self, target_user: UserProfile) -> int:
+        target_index = -1
+
+        for index, user in enumerate(self.object_list):
+            if target_user ^ user:
+                target_index = index
+
+        return target_index
+
+    def get_user_index_by_id(self, identifier: int):
+        for index, user in enumerate(self.object_list):
+            if user.identifier == identifier:
+                return index
+
+    def __contains__(self, item):
+        return not self.search_user(item)
+
+    def contains(self, user):
+        return self.__contains__(user)
 
     @staticmethod
     def search_by_fields(self, *fields: 'class : Name, PhoneNumber, DateTime') -> None:
+        """Поиск пользователей в справочнике по разным полям"""
+
         object_list: list = list()
 
         for user in object_list:

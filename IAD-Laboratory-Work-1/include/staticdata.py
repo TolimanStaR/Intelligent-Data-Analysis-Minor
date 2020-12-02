@@ -33,4 +33,6 @@ available_commands: tuple = (
 
 abs_field_class_str: str = 'AbstractField'
 
+default_class_value_name: str = 'value'
+
 space: str = ' '
