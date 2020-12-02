@@ -19,3 +19,11 @@ if __name__ == '__main__':
     print(a.parse_argument(command))
     print(b.parse_argument(command))
     print(DateTime(DateTime.parse_argument('--birth=3452 7 4 ')))
+
+    p = PhoneBook()
+    print(p)
+
+    for x in p.object_list:
+        for y in x:
+            print(y)
+    p.save()

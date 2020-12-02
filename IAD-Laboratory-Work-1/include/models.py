@@ -1,6 +1,7 @@
 import datetime
 import pyaudio
 import logging
+import csv
 import re as regexp
 
 from typing import Any
@@ -30,6 +31,8 @@ class AbstractField(ABC):
     def get_string_value(self) -> str:
         """Быстрое получение значения поля в виде строки"""
 
+        return str()
+
     @staticmethod
     @abstractmethod
     def parse_argument(command_string: str, class_arg_name: str):
@@ -56,6 +59,12 @@ class AbstractField(ABC):
 
     def __repr__(self):
         return abs_field_class_str
+
+
+class EmptyField(object):
+    @staticmethod
+    def get_string_value():
+        return str()
 
 
 class Name(AbstractField):
@@ -241,7 +250,10 @@ class DateTime(AbstractField):
 
 class UserProfile(object):
 
-    def __init__(self, name: Name = None, mobile_phone: PhoneNumber = None, birth_date: DateTime = None):
+    def __init__(self, name: Name = EmptyField(),
+                 mobile_phone: PhoneNumber = EmptyField(),
+                 birth_date: DateTime = EmptyField(),
+                 extra_phones: list = EmptyField()):
         """
         Инициализация объекта пользователя (контакта в справочнике)
         Каждое поле - отдельный класс, хранящий информацию
@@ -250,7 +262,7 @@ class UserProfile(object):
         self.name: Name = name
         self.mobile_phone: PhoneNumber = mobile_phone
         self.birth_date: DateTime = birth_date
-        self.extra_phones: list = list()
+        self.extra_phones = extra_phones
 
         self.identifier: int = self.get_identifier()
 
@@ -259,8 +271,9 @@ class UserProfile(object):
 
         hash_sum = sum(map(hash, (self.name.get_string_value(),
                                   self.mobile_phone.get_string_value(),
-                                  self.birth_date.get_string_value()))
-                       )
+                                  self.birth_date.get_string_value()
+                                  )))
+
         return hash_sum
 
     def recount_identifier(self):
@@ -283,6 +296,21 @@ class UserProfile(object):
         """Сравнение пользователей на основе их уникального идентификатора"""
 
         return self.identifier == other.identifier
+
+    def __iter__(self):
+
+        self.iterable: list = [
+            self.name.get_string_value(),
+            self.mobile_phone.get_string_value(),
+        ]
+
+        if not type(self.birth_date) is EmptyField:
+            self.iterable.append(self.birth_date.get_string_value())
+
+        if not type(self.extra_phones) is EmptyField:
+            self.iterable.append(f'\'{self.extra_phones}\'')
+
+        return self.iterable.__iter__()
 
     def __eq__(self, other):
         """Сравнение пользователей на основе равенства их полей"""
@@ -346,8 +374,35 @@ class PhoneBook(object):
         self.object_list = self.parse_database(db_file_name)
 
     @staticmethod
-    def parse_database(database_file_name: str) -> list:  # todo: implement this function
+    def parse_database(db_file_name: str = database_file_name) -> list:
         object_list: list = list()
+        try:
+            with open(db_file_name, 'r', newline='', encoding='utf-8') as database_file:
+                reader = csv.reader(database_file)
+
+                for user_data in list(reader):
+                    new_name: Name = Name(user_data[0])
+                    new_phone: PhoneNumber = PhoneNumber(user_data[1])
+
+                    new_date: Any = EmptyField()
+                    if len(user_data) >= 3:
+                        new_date = DateTime(user_data[2])
+
+                    new_extra_phones: Any = EmptyField()
+                    if len(user_data) >= 4:
+                        new_extra_phones: list = eval(user_data[3])
+
+                    new_user = UserProfile(
+                        new_name,
+                        new_phone,
+                        new_date,
+                        new_extra_phones,
+                    )
+                    object_list.append(new_user)
+
+        except FileNotFoundError:
+            print('Файла базы данных не существует')
+
         return object_list
 
     def add_user(self, user: UserProfile):
@@ -374,15 +429,19 @@ class PhoneBook(object):
         """Изменение информации о пользователе"""
 
         user_index = self.get_user_index_by_id(identifier)
+
         new_name: Name = Name(Name.parse_argument(command_string=command))
         new_phone: PhoneNumber = PhoneNumber(PhoneNumber.parse_argument(command_string=command))
         new_date: DateTime = DateTime(DateTime.parse_argument(command_string=command))
 
-        if not user_index == -1:
+        if user_index:
+
             if hasattr(new_name, default_class_value_name):
                 self.object_list[user_index] = new_name
+
             if hasattr(new_phone, default_class_value_name):
                 self.object_list[user_index] = new_phone
+
             if hasattr(new_date, default_class_value_name):
                 self.object_list[user_index] = new_date
 
@@ -413,22 +472,44 @@ class PhoneBook(object):
     def contains(self, user):
         return self.__contains__(user)
 
-    @staticmethod
-    def search_by_fields(self, *fields: 'class : Name, PhoneNumber, DateTime') -> None:
-        """Поиск пользователей в справочнике по разным полям"""
+    def search_by_fields(self, pattern_user_profile: UserProfile) -> None:
+        """
+        Поиск пользователей в справочнике по разным полям
+        Все поисковые поля содержатся в экземпляре класса UserProfile
+        С каждым пользователем производится нестрогое сравнение, что дает возможность
+        Получить несколько объектов
+        """
 
         object_list: list = list()
 
-        for user in object_list:
-            print(user)
+        for user in self.object_list:
+            if pattern_user_profile ^ user:
+                object_list.append(user)
 
-    def save(self):
+        self.represent(object_list)
+
+    def save(self, db_file_name: str = database_file_name):
         """Сохранение изменений в справочнике"""
-        pass
+
+        with open(db_file_name, 'w', encoding='utf-8', newline='') as data_base:
+            writer = csv.writer(data_base)
+            writer.writerows(list(self.object_list))
+
+    @staticmethod
+    def represent(object_list):
+        print(f'Всего {len(object_list)} объектов:')
+        for index, user in enumerate(object_list):
+            print(f'{index + 1}. {user}')
 
     def __str__(self):
-        """Естественным образом, будет изпользоваться для отображения справочника пользователю"""
+        """Естественным образом, будет использоваться для отображения справочника пользователю"""
+
         string = str()
+
+        string += f'Всего {len(self.object_list)} объектов:\n'
+        for index, user in enumerate(self.object_list):
+            string += f'{index + 1}. {user}\n'
+
         return string
 
     def __repr__(self):
