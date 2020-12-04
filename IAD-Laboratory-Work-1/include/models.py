@@ -1,16 +1,38 @@
 import datetime
+import random
+
 import pyaudio
 import logging
+import pyttsx3
 import csv
+import os
+import time
 import re as regexp
 
 from typing import Any
 from abc import ABC, abstractmethod
 
 import speech_recognition as rs
-import pocketsphinx as ps
+import pocketsphinx as psx
 
 from .staticdata import *
+
+# from .service import *
+
+from include import dispatch
+
+
+def approve(string: str) -> bool:
+    print(string)
+    print('Введите что-то по типу: да / ага / не')
+
+    choice = input()
+
+    if choice.lower() in yes:
+        return True
+
+    if choice.lower() in no:
+        return False
 
 
 class AbstractField(ABC):
@@ -42,10 +64,12 @@ class AbstractField(ABC):
 
         if result:
             return result[0]
+        else:
+            return EmptyField()
 
     @staticmethod
     def get_command_string_arg_pattern(arg_name: str) -> str:
-        return rf'--{arg_name}=([a-zA-Z0-9 \+.;]*)[-$\s\n\t ]+'
+        return rf'--{arg_name}=(-*[a-zA-Z0-9а-яА-Я \+.;]*)[-$\s\n\t ]+'
 
     class InvalidValue(Exception):
         def __init__(self, exception_text):
@@ -66,6 +90,9 @@ class EmptyField(object):
     def get_string_value():
         return str()
 
+    def __str__(self):
+        return str()
+
 
 class Name(AbstractField):
     value_class = tuple
@@ -79,7 +106,7 @@ class Name(AbstractField):
             self.first_name: str = self.value[0]
             self.last_name: str = self.value[1]
         else:
-            raise self.InvalidValue(invalid_value_sign)
+            self.value = EmptyField()
 
     def is_valid_value(self, value: Any) -> bool:
 
@@ -105,7 +132,9 @@ class Name(AbstractField):
         return AbstractField.parse_argument(command_string, class_arg_name)
 
     def __str__(self):
-        return f'{self.value[0]} {self.value[1]}'
+        if type(self.value) != EmptyField:
+            return f'{self.value[0]} {self.value[1]}'
+        return str()
 
     def __repr__(self):
         return self.__str__()
@@ -125,7 +154,7 @@ class PhoneNumber(AbstractField):
             self.value: PhoneNumber.value_class = self.standardise_value(value)
             self.phone_type: str = value_type
         else:
-            raise self.InvalidValue(invalid_value_sign)
+            self.value = EmptyField()
 
     def standardise_value(self, value: Any) -> value_class:
         phone_number = self.reduce(value)
@@ -178,7 +207,7 @@ class DateTime(AbstractField):
         if self.is_valid_value(value):
             self.value: DateTime.value_class = self.standardise_value(value)
         else:
-            raise self.InvalidValue(invalid_value_sign)
+            self.value = EmptyField()
 
     def standardise_value(self, value: Any) -> value_class:
         date_data: list = list(map(int, self.reduce(value).split()))
@@ -215,6 +244,7 @@ class DateTime(AbstractField):
 
         if not len(date) == 3:
             is_valid = False
+            return is_valid
 
         if not (len(date[0]) == 4 and 1 <= len(date[1]) <= 2 and 1 <= len(date[2]) <= 2):
             is_valid = False
@@ -226,7 +256,7 @@ class DateTime(AbstractField):
         date = list(map(int, date))
 
         try:
-            test_date = datetime.date(
+            datetime.date(
                 year=date[0],
                 month=date[1],
                 day=date[2],
@@ -239,7 +269,9 @@ class DateTime(AbstractField):
         return is_valid
 
     def __str__(self):
-        return f'{self.value.year}.{self.value.month}.{self.value.day}'
+        if type(self.value) != EmptyField:
+            return f'{self.value.year}.{self.value.month}.{self.value.day}'
+        return str()
 
     def __repr__(self):
         return self.__str__()
@@ -265,6 +297,7 @@ class UserProfile(object):
         self.extra_phones = extra_phones
 
         self.identifier: int = self.get_identifier()
+        self.array: list = []
 
     def get_identifier(self) -> int:
         """Получение уникального идентификатора пользователя"""
@@ -337,17 +370,20 @@ class UserProfile(object):
 
         match = True
 
-        if other.name:
-            if not self.name == other.name:
-                match = False
+        if type(other.name) != EmptyField:
+            if type(other.name.value) != EmptyField:
+                if not self.name == other.name:
+                    match = False
 
-        if other.mobile_phone:
-            if not self.mobile_phone == other.mobile_phone:
-                match = False
+        if type(other.mobile_phone) != EmptyField:
+            if type(other.mobile_phone.value) != EmptyField:
+                if not self.mobile_phone == other.mobile_phone:
+                    match = False
 
-        if other.birth_date:
-            if not self.birth_date == other.birth_date:
-                match = False
+        if type(other.birth_date) != EmptyField:
+            if type(other.birth_date.value) != EmptyField:
+                if not self.birth_date == other.birth_date:
+                    match = False
 
         return match
 
@@ -405,11 +441,18 @@ class PhoneBook(object):
 
         return object_list
 
+    def add_data(self, db_file_name: str):
+        self.object_list += self.parse_database(db_file_name=db_file_name)
+
     def add_user(self, user: UserProfile):
         """Добавление пользователя в справочник"""
 
         if user not in self.object_list:
             self.object_list.append(user)
+            self.save()
+
+        else:
+            print('Такой пользователь существует.')
 
     def __add__(self, other):
         self.add_user(other)
@@ -421,9 +464,14 @@ class PhoneBook(object):
         """
 
         for index, user in enumerate(self.object_list):
-            if target_user ^ user:
-                self.object_list.pop(index)
-                return
+            if user ^ target_user:
+                if approve('Вы подтверждаете удаление пользователя? Введите да или нет'):
+                    print(f'Пользователь {self.object_list[index].name} удален')
+                    self.object_list.pop(index)
+                    self.save()
+                    return
+
+        print(user_does_not_exist)
 
     def edit_user(self, identifier: int, command: str):
         """Изменение информации о пользователе"""
@@ -436,34 +484,43 @@ class PhoneBook(object):
 
         if user_index:
 
-            if hasattr(new_name, default_class_value_name):
-                self.object_list[user_index] = new_name
+            if type(new_name.value) is not EmptyField:
+                self.object_list[user_index].name = new_name
 
-            if hasattr(new_phone, default_class_value_name):
-                self.object_list[user_index] = new_phone
+            if type(new_phone.value) is not EmptyField:
+                self.object_list[user_index].mobile_phone = new_phone
 
-            if hasattr(new_date, default_class_value_name):
-                self.object_list[user_index] = new_date
+            if type(new_date.value) is not EmptyField:
+                self.object_list[user_index].birth_date = new_date
 
-            self.object_list[user_index].recount_identifier()
+            # self.object_list[user_index].recount_identifier()
 
-    def search_user(self, target_user: UserProfile) -> UserProfile:
+            self.save()
+
+            print('Контакт изменен')
+            return
+
+        print('Контакт не найден')
+
+    def search_user(self, target_user: UserProfile) -> bool:
         for user in self.object_list:
-            if target_user ^ user:
-                return user
+            if user ^ target_user:
+                return True
+
+        return False
 
     def get_user_index(self, target_user: UserProfile) -> int:
         target_index = -1
 
         for index, user in enumerate(self.object_list):
-            if target_user ^ user:
+            if user ^ target_user:
                 target_index = index
 
         return target_index
 
     def get_user_index_by_id(self, identifier: int):
         for index, user in enumerate(self.object_list):
-            if user.identifier == identifier:
+            if int(user.identifier) - int(identifier) == 0:
                 return index
 
     def __contains__(self, item):
@@ -483,7 +540,7 @@ class PhoneBook(object):
         object_list: list = list()
 
         for user in self.object_list:
-            if pattern_user_profile ^ user:
+            if user ^ pattern_user_profile:
                 object_list.append(user)
 
         self.represent(object_list)
@@ -493,7 +550,8 @@ class PhoneBook(object):
 
         with open(db_file_name, 'w', encoding='utf-8', newline='') as data_base:
             writer = csv.writer(data_base)
-            writer.writerows(list(self.object_list))
+            for row in self.object_list:
+                writer.writerow(row)
 
     @staticmethod
     def represent(object_list):
@@ -516,5 +574,155 @@ class PhoneBook(object):
         return self.__str__()
 
 
+class LiveSpeech(object):
+
+    def __new__(cls):
+        """
+        Определим речь как синглтон.
+        Инициализация модели - затратная по времени операция, поэтому оптимально будет
+        Инициализировать ее только один раз, и потом использовать
+        """
+
+        if not hasattr(cls, 'instance'):
+            cls.instance = super(LiveSpeech, cls).__new__(cls)
+        return cls.instance
+
+    def __init__(self):
+        self.model_path = psx.get_model_path()
+        self.speech_stream = psx.LiveSpeech(
+            verbose=False,
+            sampling_rate=16000,
+            buffer_size=2048,
+            no_search=False,
+            full_utt=False,
+            hmm=os.path.join(self.model_path, 'zero_ru.cd_cont_4000'),
+            lm=os.path.join(self.model_path, 'ru.lm'),
+            dic=os.path.join(self.model_path, 'ru.dic')
+        )
+        self.data: str = str()
+
+    def listen(self):
+        for phrase in self.speech_stream:
+            self.data = phrase
+            break
+
+    def daemon(self):
+        for phrase in self.speech_stream:
+            if str(phrase) in AI_name or AI_name in str(phrase):
+                FRIDAY.say(FRIDAY(), random.choice(AI_greeting))
+                dispatch.shell(1)
+                pass
+
+    def get_most_similar_action(self, action_list: list = rus_available_commands):
+        """
+        Добавим чуть чуть интеллектуальности. На иаде все-таки учимся
+        Будем искать максимально похожее доступное действие с помощью динамики по строкам
+        """
+
+        current_coincidence: float = .0
+        most_similar_command: str = str()
+
+        data_arr = reversed(self.data.split())
+
+        for statement in data_arr:
+            for action in action_list:
+                reward: float = (len(action) * len(statement)) ** .5 * (1 / abs(len(action) - len(statement) + 1)) ** .5
+                print(statement, action, reward)
+
+                matrix = [[.0] * (len(action) + 1) for _ in range(len(statement) + 1)]
+
+                for i, x in enumerate(statement):
+                    for j, y in enumerate(action):
+                        if x == y:
+                            matrix[i + 1][j + 1] = matrix[i][j] + reward
+                        else:
+                            matrix[i + 1][j + 1] = max(matrix[i][j + 1], matrix[i + 1][j])
+
+                coincidence_in_place: float = max(map(max, matrix))
+
+                if coincidence_in_place > current_coincidence:
+                    current_coincidence = coincidence_in_place
+                    most_similar_command = action
+
+        return most_similar_command
+
+
+class InputData(object):
+    """
+    Входные данные - это просто текст
+    Входные данные не знают, что они команда, которая что-то делает
+    """
+
+    def __init__(self):
+        self.data: str = str()
+
+    def get_data(self):
+        # todo: добавить приглашение
+        try:
+            self.data: str = str(input())
+        except EOFError:
+            pass
+
+    @staticmethod
+    def dumb_get_most_similar_action(data: str, action_list: list = available_commands):
+
+        data_arr = list(reversed(data.split()))
+
+        for action in action_list:
+            for statement in data_arr:
+                if statement == action:
+                    return action
+
+
+class FRIDAY(object):
+    """
+    Синтезатор голоса.
+    До Джарвиса ей далековато, в плане харизмы,
+    Но команды озвучивает и юмора программе она добавляет :)
+    Тоже синглтон, к удивлению
+    """
+
+    def __new__(cls, *args, **kwargs):
+        if not hasattr(cls, 'instance'):
+            cls.instance = super(FRIDAY, cls).__new__(cls)
+        return cls.instance
+
+    def __init__(self):
+        self.synthesizer = pyttsx3.init()
+        self.voices_list = self.synthesizer.getProperty('voices')
+        self.synthesizer.setProperty('voice', 'ru')
+
+    def say(self, text: str):
+        self.synthesizer.say(f'{text}')
+        self.synthesizer.runAndWait()
+
+    def init(self):
+        self.__init__()
+
+    def __str__(self):
+        return 'class models.FRIDAY'
+
+
 class Command(object):
-    pass
+    """
+    Команда как что-то абстрактное.
+    Класс не должен знать, что это текст или речь, полученная от пользователя
+    Класс может попросить ввести команду, но не знать, как это происходит
+    """
+
+    def __init__(self):
+        self.command = None
+
+    @staticmethod
+    def invite_to_enter_command():
+        print(command_enter_invitation)
+
+    def recognize_command_from_text(self, string: str = str()):
+        """Распознавание команды из текста"""
+
+        self.command = InputData.dumb_get_most_similar_action(string)
+
+    def recognize_command_from_speech(self):
+        """Распознавание команды из речи"""
+
+        self.command = LiveSpeech.get_most_similar_action(LiveSpeech().instance)
